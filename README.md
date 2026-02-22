@@ -1,4 +1,4 @@
-# pinergy-client
+# Pinergy Python Client
 
 Python client for the **Pinergy API**, reverse-engineered from the official Android app.
 
