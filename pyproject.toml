@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pinergy"
-version = "0.1.0"
-description = "Python client for the Pinergy API (reverse-engineered from Android app)"
+version = "0.1.1"
+description = "Python client for the Pinergy API"
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
