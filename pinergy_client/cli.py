@@ -146,11 +146,208 @@ def config(ctx: click.Context, token: str) -> None:
         client.close()
 
 
+def _plan_keys_from_daily_dict(d: dict) -> list[str]:
+    """Keys from daykWh/dayEuro that are not Total (plan names). Sorted for stable columns."""
+    keys = set(d.keys()) - {"Total"}
+    return sorted(keys)
+
+
+def _plan_labels_from_tariff_list(tariff_list: list[dict]) -> list[str]:
+    """Plan labels from [{ label, usage }, ...] in order."""
+    return [str(u.get("label") or "").strip() for u in tariff_list if (u.get("label") or "").strip()]
+
+
+def _format_level_pay_summary(usage_data: dict) -> None:
+    """Print compact Level Pay tables (daily, 7 days, weekly, monthly). Plan names (e.g. Standard, Drive) are read from data."""
+    # Daily: last N days from daily.values (each has daykWh/dayEuro with Total + plan keys)
+    daily = usage_data.get("daily") or {}
+    daily_values = daily.get("values") or []
+    if daily_values:
+        first_dk = (daily_values[0] or {}).get("daykWh") or {}
+        first_de = (daily_values[0] or {}).get("dayEuro") or {}
+        plan_keys = _plan_keys_from_daily_dict(first_dk) or _plan_keys_from_daily_dict(first_de)
+        table = Table(title="Level Pay — Daily (recent days)")
+        table.add_column("Date", style="cyan")
+        table.add_column("Total kWh", justify="right", style="green")
+        table.add_column("Total €", justify="right", style="green")
+        for k in plan_keys:
+            table.add_column(f"{k} kWh", justify="right", style="dim")
+        for k in plan_keys:
+            table.add_column(f"{k} €", justify="right", style="dim")
+        for v in daily_values[:10]:
+            label = v.get("label") or "—"
+            dk = v.get("daykWh") or {}
+            de = v.get("dayEuro") or {}
+            total_kwh = dk.get("Total") or 0
+            total_euro = de.get("Total") or 0
+            row: list[str] = [
+                label,
+                f"{total_kwh:.2f}",
+                f"€{total_euro:.2f}",
+            ]
+            for k in plan_keys:
+                row.append(f"{dk.get(k) or 0:.2f}")
+            for k in plan_keys:
+                row.append(f"€{de.get(k) or 0:.2f}")
+            table.add_row(*row)
+        console.print(table)
+
+    # Top cost and consumption half-hours (average across available days)
+    slot_labels = daily.get("labels") or []
+    n_slots = len(slot_labels)
+    if n_slots and daily_values:
+        avg_kwh: list[float] = [0.0] * n_slots
+        avg_euro: list[float] = [0.0] * n_slots
+        for v in daily_values:
+            h_kwh = v.get("halfHourlykWh") or v.get("half_hourly_kwh") or []
+            h_euro = v.get("halfHourlyEuro") or v.get("half_hourly_euro") or []
+            for i in range(min(n_slots, len(h_kwh))):
+                avg_kwh[i] += float(h_kwh[i] or 0)
+            for i in range(min(n_slots, len(h_euro))):
+                avg_euro[i] += float(h_euro[i] or 0)
+        nd = len(daily_values)
+        if nd > 0:
+            for i in range(n_slots):
+                avg_kwh[i] /= nd
+                avg_euro[i] /= nd
+            by_kwh = sorted(range(n_slots), key=lambda i: avg_kwh[i], reverse=True)
+            by_euro = sorted(range(n_slots), key=lambda i: avg_euro[i], reverse=True)
+            top_n = 5
+            table = Table(title="Level Pay — Peak half-hours (average)")
+            table.add_column("Top consumption", style="cyan")
+            table.add_column("Avg kWh", justify="right", style="green")
+            table.add_column("Top cost", style="cyan")
+            table.add_column("Avg €", justify="right", style="green")
+            for j in range(top_n):
+                i_kwh = by_kwh[j] if j < len(by_kwh) else 0
+                i_euro = by_euro[j] if j < len(by_euro) else 0
+                table.add_row(
+                    slot_labels[i_kwh],
+                    f"{avg_kwh[i_kwh]:.3f}",
+                    slot_labels[i_euro],
+                    f"€{avg_euro[i_euro]:.3f}",
+                )
+            console.print(table)
+
+    # Seven days: labels = day names; daykWh / dayEuro = [{ label, usage }]
+    seven = usage_data.get("sevenDays") or {}
+    seven_labels = seven.get("labels") or []
+    seven_kwh = seven.get("daykWh") or []
+    seven_euro = seven.get("dayEuro") or []
+    if seven_labels and seven_kwh and seven_euro:
+        n7 = len(seven_labels)
+        plan_names = _plan_labels_from_tariff_list(seven_kwh)
+        usage_by_plan_kwh = {str(u.get("label") or "").strip(): (u.get("usage") or []) for u in seven_kwh}
+        usage_by_plan_euro = {str(u.get("label") or "").strip(): (u.get("usage") or []) for u in seven_euro}
+        table = Table(title="Level Pay — Last 7 days")
+        table.add_column("Day", style="cyan")
+        table.add_column("Total kWh", justify="right", style="green")
+        table.add_column("Total €", justify="right", style="green")
+        for p in plan_names:
+            table.add_column(f"{p} kWh", justify="right", style="dim")
+        for p in plan_names:
+            table.add_column(f"{p} €", justify="right", style="dim")
+        for i in range(n7):
+            row: list[str] = [seven_labels[i]]
+            total_kwh = 0.0
+            total_euro = 0.0
+            for p in plan_names:
+                uk = usage_by_plan_kwh.get(p) or []
+                ue = usage_by_plan_euro.get(p) or []
+                vk = float(uk[i]) if i < len(uk) and uk[i] is not None else 0.0
+                ve = float(ue[i]) if i < len(ue) and ue[i] is not None else 0.0
+                total_kwh += vk
+                total_euro += ve
+            row.append(f"{total_kwh:.2f}")
+            row.append(f"€{total_euro:.2f}")
+            for p in plan_names:
+                uk = usage_by_plan_kwh.get(p) or []
+                vk = float(uk[i]) if i < len(uk) and uk[i] is not None else 0.0
+                row.append(f"{vk:.2f}")
+            for p in plan_names:
+                ue = usage_by_plan_euro.get(p) or []
+                ve = float(ue[i]) if i < len(ue) and ue[i] is not None else 0.0
+                row.append(f"€{ve:.2f}")
+            table.add_row(*row)
+        console.print(table)
+
+    # Weekly
+    weekly = usage_data.get("weekly") or {}
+    w_labels = weekly.get("labels") or []
+    w_kwh = weekly.get("weeklykWh") or []
+    w_euro = weekly.get("weeklyEuro") or []
+    if w_labels and w_kwh and w_euro:
+        nw = len(w_labels)
+        plan_names = _plan_labels_from_tariff_list(w_kwh)
+        usage_by_plan_kwh = {str(u.get("label") or "").strip(): (u.get("usage") or []) for u in w_kwh}
+        usage_by_plan_euro = {str(u.get("label") or "").strip(): (u.get("usage") or []) for u in w_euro}
+        table = Table(title="Level Pay — Weekly")
+        table.add_column("Week", style="cyan")
+        table.add_column("Total kWh", justify="right", style="green")
+        table.add_column("Total €", justify="right", style="green")
+        for p in plan_names:
+            table.add_column(f"{p} kWh", justify="right", style="dim")
+        for p in plan_names:
+            table.add_column(f"{p} €", justify="right", style="dim")
+        for i in range(nw):
+            row = [w_labels[i]]
+            total_kwh = sum(float((usage_by_plan_kwh.get(p) or [])[i]) if i < len(usage_by_plan_kwh.get(p) or []) and (usage_by_plan_kwh.get(p) or [])[i] is not None else 0.0 for p in plan_names)
+            total_euro = sum(float((usage_by_plan_euro.get(p) or [])[i]) if i < len(usage_by_plan_euro.get(p) or []) and (usage_by_plan_euro.get(p) or [])[i] is not None else 0.0 for p in plan_names)
+            row.append(f"{total_kwh:.2f}")
+            row.append(f"€{total_euro:.2f}")
+            for p in plan_names:
+                uk = usage_by_plan_kwh.get(p) or []
+                vk = float(uk[i]) if i < len(uk) and uk[i] is not None else 0.0
+                row.append(f"{vk:.2f}")
+            for p in plan_names:
+                ue = usage_by_plan_euro.get(p) or []
+                ve = float(ue[i]) if i < len(ue) and ue[i] is not None else 0.0
+                row.append(f"€{ve:.2f}")
+            table.add_row(*row)
+        console.print(table)
+
+    # Monthly
+    monthly = usage_data.get("monthly") or {}
+    m_labels = monthly.get("labels") or []
+    m_kwh = monthly.get("monthlykWh") or []
+    m_euro = monthly.get("monthlyEuro") or []
+    if m_labels and m_kwh and m_euro:
+        nm = len(m_labels)
+        plan_names = _plan_labels_from_tariff_list(m_kwh)
+        usage_by_plan_kwh = {str(u.get("label") or "").strip(): (u.get("usage") or []) for u in m_kwh}
+        usage_by_plan_euro = {str(u.get("label") or "").strip(): (u.get("usage") or []) for u in m_euro}
+        table = Table(title="Level Pay — Monthly")
+        table.add_column("Month", style="cyan")
+        table.add_column("Total kWh", justify="right", style="green")
+        table.add_column("Total €", justify="right", style="green")
+        for p in plan_names:
+            table.add_column(f"{p} kWh", justify="right", style="dim")
+        for p in plan_names:
+            table.add_column(f"{p} €", justify="right", style="dim")
+        for i in range(nm):
+            row = [m_labels[i]]
+            total_kwh = sum(float((usage_by_plan_kwh.get(p) or [])[i]) if i < len(usage_by_plan_kwh.get(p) or []) and (usage_by_plan_kwh.get(p) or [])[i] is not None else 0.0 for p in plan_names)
+            total_euro = sum(float((usage_by_plan_euro.get(p) or [])[i]) if i < len(usage_by_plan_euro.get(p) or []) and (usage_by_plan_euro.get(p) or [])[i] is not None else 0.0 for p in plan_names)
+            row.append(f"{total_kwh:.2f}")
+            row.append(f"€{total_euro:.2f}")
+            for p in plan_names:
+                uk = usage_by_plan_kwh.get(p) or []
+                vk = float(uk[i]) if i < len(uk) and uk[i] is not None else 0.0
+                row.append(f"{vk:.2f}")
+            for p in plan_names:
+                ue = usage_by_plan_euro.get(p) or []
+                ve = float(ue[i]) if i < len(ue) and ue[i] is not None else 0.0
+                row.append(f"€{ve:.2f}")
+            table.add_row(*row)
+        console.print(table)
+
+
 @main.command()
 @click.option("--token", envvar="PINERGY_AUTH_TOKEN", required=True, help="Auth token")
+@click.option("--raw", is_flag=True, help="Print full JSON instead of summary tables")
 @click.pass_context
-def level_pay_usage(ctx: click.Context, token: str) -> None:
-    """Fetch Level Pay / rebrand usage (usageData)."""
+def level_pay_usage(ctx: click.Context, token: str, raw: bool) -> None:
+    """Fetch Level Pay / rebrand usage (half-hourly data; summary tables or --raw JSON)."""
     client = PinergyClient(base_url=ctx.obj["base_url"], auth_token=token)
     try:
         resp = client.get_level_pay_usage()
@@ -158,8 +355,11 @@ def level_pay_usage(ctx: click.Context, token: str) -> None:
             console.print(f"[red]{resp.message or 'Request failed'}[/red]")
             raise SystemExit(1)
         if resp.usage_data:
-            console.print("[bold]Level Pay usage data:[/bold]")
-            console.print(json.dumps(resp.usage_data, indent=2, default=str))
+            if raw:
+                console.print("[bold]Level Pay usage data:[/bold]")
+                console.print(json.dumps(resp.usage_data, indent=2, default=str))
+            else:
+                _format_level_pay_summary(resp.usage_data)
         else:
             console.print("[dim]No usage data.[/dim]")
     finally:

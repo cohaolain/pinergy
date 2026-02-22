@@ -19,7 +19,8 @@ def client(base_url: str) -> PinergyClient:
 
 
 class TestPinergyClientAuth:
-    def test_requires_auth_for_balance(self, base_url: str) -> None:
+    def test_requires_auth_for_balance(self, base_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PINERGY_AUTH_TOKEN", raising=False)
         c = PinergyClient(base_url=base_url)
         with pytest.raises(PinergyAuthError):
             c.balance()

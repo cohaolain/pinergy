@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import string
 import sys
@@ -47,13 +48,15 @@ class PinergyClient:
 
     def __init__(
         self,
-        base_url: str = DEFAULT_BASE_URL,
+        base_url: str | None = None,
         auth_token: str | None = None,
         timeout: tuple[int, int] = DEFAULT_TIMEOUT,
         debug: bool = False,
         log_stream: IO[str] | None = None,
     ):
-        self.base_url = base_url.rstrip("/")
+        base = (base_url or os.environ.get("PINERGY_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+        token = auth_token if auth_token is not None else os.environ.get("PINERGY_AUTH_TOKEN") or None
+        self.base_url = base
         self._timeout = timeout
         self._debug = debug
         self._log_stream: IO[str] = log_stream or sys.stdout
@@ -62,8 +65,8 @@ class PinergyClient:
         self._session.headers["Accept"] = "application/json"
         # API may reject default python-requests User-Agent; mimic app
         self._session.headers["User-Agent"] = "Pinergy/1.0 (Android 14)"
-        if auth_token:
-            self._session.headers[AUTH_HEADER] = auth_token
+        if token:
+            self._session.headers[AUTH_HEADER] = token
 
     @property
     def auth_token(self) -> str | None:
@@ -169,16 +172,17 @@ class PinergyClient:
 
     def login(
         self,
-        email: str,
-        password: str,
+        email: str | None = None,
+        password: str | None = None,
         device_token: str = "",
     ) -> LoginResponse:
         """Authenticate and set auth_token on this session.
 
+        Email and password default to PINERGY_EMAIL and PINERGY_PASSWORD from the environment if not provided.
         Sends only email, SHA-1(UTF-8) hex of password, and device_token (matches LoginApiRequest).
         """
-        email = (email or "").strip()
-        raw_password = (password or "").strip()
+        email = (email or os.environ.get("PINERGY_EMAIL") or "").strip()
+        raw_password = (password or os.environ.get("PINERGY_PASSWORD") or "").strip()
         password = hashlib.sha1(raw_password.encode("utf-8")).hexdigest()
         if not device_token:
             device_token = self._generate_fake_fcm_token()
