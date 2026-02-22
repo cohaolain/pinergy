@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pinergy-client"
+version = "0.1.0"
+description = "Python client for the Pinergy API (reverse-engineered from Android app)"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Pinergy Client" }]
+dependencies = [
+    "requests>=2.31",
+    "rich>=13.0",
+    "rich-click>=1.7",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "requests-mock>=1.11",
+]
+
+[project.scripts]
+pinergy = "pinergy_client.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pinergy_client*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+env = [
+    "PINERGY_EMAIL=",
+    "PINERGY_PASSWORD=",
+    "PINERGY_AUTH_TOKEN=",
+]
+filterwarnings = ["ignore:.*"]
+
+[tool.coverage.run]
+source = ["pinergy_client"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "def __repr__", "raise NotImplementedError"]
