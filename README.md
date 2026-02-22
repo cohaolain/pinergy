@@ -2,6 +2,8 @@
 
 Python client for the **Pinergy API**, reverse-engineered from the official Android app.
 
+> **Disclaimer:** This is an **unofficial** client and is not affiliated with or endorsed by Pinergy. It is based on independent research and reverse-engineering of the public API. Use at your own risk; the API may change without notice and the authors assume no liability for any use of this software.
+
 - **Auth:** Session-based; login with email/password to obtain an `auth_token` sent on subsequent requests.
 - **Endpoints:** Balance, usage, top-up, compare, profile, notifications, config, landlord check, etc.
 
