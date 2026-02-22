@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pinergy-client"
+name = "pinergy"
 version = "0.1.0"
 description = "Python client for the Pinergy API (reverse-engineered from Android app)"
 readme = "README.md"
